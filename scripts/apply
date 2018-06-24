@@ -27,4 +27,4 @@ echo "Sleeping for 2 minutes until docker is installed on node..., press Ctrl-C 
 for number in `seq 120`; do
     sleep 1
 done
-rke up --config rke/rke/files/
+rke up --config rke.yml
