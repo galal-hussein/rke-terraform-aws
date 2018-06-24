@@ -9,7 +9,7 @@ node {
   stage ('RUN Kubectl') {
       sh "kubectl --kubeconfig=kube_config_rke.yml apply -f job.yml"
       sh "sleep 30"
-      sh "kubectl --kubeconfig=kube_config_rke.yml get jobs"
+      sh "kubectl --kubeconfig=kube_config_rke.yml get jobs -n default"
   }
 
   stage ('Terraform Destroy') {
