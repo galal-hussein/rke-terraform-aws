@@ -27,7 +27,7 @@ scripts/rke apply
 # Run RKE
 echo ""
 trap '{ echo "Hey, you pressed Ctrl-C.  skip waiting" ; rke up --config rke.yml; }' INT
-echo "Sleeping for 2 minutes until docker is installed on node..., press Ctrl-C to interrupt."
+echo "Sleeping for 1 minutes until docker is installed on node..., press Ctrl-C to interrupt."
 for number in `seq 60`; do
     sleep 1
 done
