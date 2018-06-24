@@ -10,7 +10,11 @@ if [ -z "${AWS_SSH_PRIV_KEY}" ]; then
   echo "AWS SSH KEY Is not defined"
   exit
 fi
+
+# Add ssh private key
 echo "${AWS_SSH_PRIV_KEY}" > genentech.pem
+# Add job yaml
+echo "${JOB_YAML}" > job.yml
 
 # Run main script
 scripts/main
