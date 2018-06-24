@@ -1,0 +1,25 @@
+#!/bin/bash -ex
+
+MODE=$1
+
+# Creating database variables
+pushd ./rke/rke
+
+make init
+
+# Initialize rke vars
+cat <<RKE > rke.tfvars
+aws_ssh_user = "${AWS_SSH_USER}"
+RKE
+
+if [ ${MODE} == "apply" ];then
+  make SHELL='sh -x' plan-output
+  PLAN=`ls rke.plan`
+elif [ ${MODE} == "destroy" ]; then
+  make plan-destroy
+  PLAN=`ls rke-destroy.plan`
+fi
+
+PLAN=$PLAN make apply-plan
+
+popd

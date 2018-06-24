@@ -1,0 +1,30 @@
+#!/bin/bash -e
+
+if ! which rke; then
+  echo "rke binary is not installed, please download rke and make sure its in PATH"
+  exit
+fi
+
+# Add SSH priv key
+if [ -z "${AWS_SSH_PRIV_KEY}" ]; then
+  echo "AWS SSH KEY Is not defined"
+  exit
+fi
+echo "${AWS_SSH_PRIV_KEY}" > genentech.pem
+
+# Run main script
+scripts/main
+# Run Management module
+scripts/ec2 apply
+# Run RKE module
+scripts/rke apply
+
+
+# Run RKE
+echo ""
+trap '{ echo "Hey, you pressed Ctrl-C.  skip waiting" ; rke up --config rke.yml; }' INT
+echo "Sleeping for 2 minutes until docker is installed on node..., press Ctrl-C to interrupt."
+for number in `seq 120`; do
+    sleep 1
+done
+rke up --config rke/rke/files/

@@ -1,0 +1,6 @@
+nodes:
+  - address: ${node_public_ip}
+    user: ${aws_ssh_user}
+    role: [controlplane,etcd,worker]
+    ssh_key_path: ${aws_ssh_priv_key_path}
+    internal_address: ${node_private_ip}

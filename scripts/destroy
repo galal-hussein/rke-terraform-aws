@@ -1,0 +1,6 @@
+#!/bin/bash -ex
+
+# Run main script
+scripts/main
+# Run Management module
+scripts/ec2 destroy

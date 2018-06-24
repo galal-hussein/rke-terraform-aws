@@ -1,0 +1,32 @@
+#!/bin/bash -ex
+
+MODE=$1
+
+# Creating database variables
+pushd ./rke/ec2
+
+make init
+
+# Initialize networking vars
+cat <<MGMT > ec2.tfvars
+rancher_version = "${RANCHER_VERSION}"
+aws_ami = "${AWS_AMI}"
+aws_vpc_id = "${AWS_VPC_ID}"
+aws_instance_type = "${AWS_INSTANCE_TYPE}"
+docker_version = "${RANCHER_DOCKER_VERSION}"
+rhel_selinux = "${RANCHER_RHEL_SELINUX:-false}"
+rhel_docker_native = "${RANCHER_DOCKER_RHEL_NATIVE:-false}"
+key_name = "${AWS_KEY_NAME}"
+MGMT
+
+if [ ${MODE} == "apply" ];then
+  make SHELL='sh -x' plan-output
+  PLAN=`ls ec2.plan`
+elif [ ${MODE} == "destroy" ]; then
+  make plan-destroy
+  PLAN=`ls ec2-destroy.plan`
+fi
+
+PLAN=$PLAN make apply-plan
+
+popd

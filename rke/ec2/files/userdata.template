@@ -1,0 +1,193 @@
+#cloud-config
+rancher:
+  docker:
+    engine: docker-${docker_version}
+
+write_files:
+  - path: /opt/rancher/bin/bootstrap.sh
+    permissions: "0770"
+    content: |
+      #!/bin/bash
+      set -uxe
+
+      ###############################################################################
+      # figure out the OS family for our context
+      ###############################################################################
+      get_osfamily() {
+          local osfamily='unknown'
+
+          # ugly way to figure out what OS family we are running.
+          set +e
+          if apt-get --version > /dev/null 2>&1; then
+            osfamily='debian'
+          elif yum --version > /dev/null 2>&1; then
+            osfamily='redhat'
+          elif ros --version > /dev/null 2>&1; then
+            osfamily='rancher'
+          fi
+          set -e
+
+          echo "$${osfamily}"
+      }
+
+
+      ###############################################################################
+      # Docker volume LVM adjustments done the right way. :\
+      ###############################################################################
+      docker_lvm_thinpool_config() {
+        # configure selinux
+        if [ ${rhel_selinux} == "false" ]; then
+          sudo setenforce 0
+        fi
+        # else it's enabled by default
+
+        wget -O - "https://releases.rancher.com/install-docker/${docker_version}.sh" | sudo bash -
+
+        sudo systemctl daemon-reload
+        sudo systemctl restart docker
+
+      }
+
+
+      ###############################################################################
+      # Docker Installation for Native Docker
+      ###############################################################################
+      docker_lvm_thinpool_config_native() {
+        rhel_selinux="${rhel_selinux}" || exit $?
+        sudo yum-config-manager --enable rhui-REGION-rhel-server-extras
+        docker_version_match=$(sudo yum --showduplicates list docker | grep ${docker_version} | sort -rn | head -n1 | awk -F' ' '{print $2}' | cut -d":" -f2)
+        sudo yum install -y docker-$docker_version_match
+        sudo systemctl start docker
+
+        # Set up SeLinux
+        if [ $${rhel_selinux} == "true" ]; then
+          docker_selinux
+        else
+          sudo setenforce 0
+        fi
+
+        sudo systemctl daemon-reload
+        sudo systemctl restart docker
+      }
+
+
+      ###############################################################################
+      # Docker SeLinux Configuration
+      ###############################################################################
+      docker_selinux() {
+        sudo yum install -y selinux-policy-devel
+        sudo echo 'policy_module(virtpatch, 1.0)' >> virtpatch.te
+        sudo echo 'gen_require(`' >> virtpatch.te
+        sudo echo 'type svirt_lxc_net_t;' >> virtpatch.te
+        sudo echo "')" >> virtpatch.te
+        sudo echo "allow svirt_lxc_net_t self:netlink_xfrm_socket create_netlink_socket_perms;" >> virtpatch.te
+
+        sudo make -f /usr/share/selinux/devel/Makefile
+        sudo semodule -i virtpatch.pp
+        count=$(sudo semodule -l | grep virtpatch | wc -l)
+        if [ $count -eq 0 ]; then
+          echo "SeLinux module is not loaded properly"
+          exit 1
+        fi
+        sudo systemctl stop docker
+        sleep 10
+      }
+
+      ################################################################################
+      # install specified Docker version
+      ################################################################################
+      docker_install_tag_version() {
+        wget -O - "https://releases.rancher.com/install-docker/${docker_version}.sh" | sudo bash -
+        sudo service docker restart
+      }
+
+      ################################################################################
+      # switch docker in ros
+      ################################################################################
+      docker_switch_ros() {
+        local ros_docker_version
+        ros_docker_version=$(ros engine list | grep -o docker-${docker_version}.*)
+        ros engine switch $${ros_docker_version}
+      }
+
+
+      ###############################################################################
+      # install things required to work well / work well w/ AWS
+      ###############################################################################
+      system_prep() {
+        local osfamily
+        local os_user
+        osfamily="$(get_osfamily)" || exit $?
+
+        case "$${osfamily}" in
+      'redhat')
+          os_user='ec2-user'
+          sudo yum remove -y epel-release
+          sudo yum install -y wget
+          sudo wget -O /etc/yum.repos.d/epel.repo https://mirror.openshift.com/mirror/epel/epel7.repo
+          sudo yum install -y deltarpm
+
+          sudo yum install --skip-broken -y jq python-pip htop python-docutils mosh
+          sudo pip install awscli
+          sudo wget -O /usr/local/bin/ec2metadata http://s3.amazonaws.com/ec2metadata/ec2-metadata
+          sudo chmod +x /usr/local/bin/ec2metadata
+          ;;
+
+      'debian')
+          os_user='ubuntu'
+          export DEBIAN_FRONTEND=noninteractive
+          export DEBCONF_NONINTERACTIVE_SEEN=true
+          sudo apt-get update
+          sudo apt-get install -y jq awscli htop mosh cloud-guest-utils
+          ;;
+
+      'rancher')
+          os_user='rancher'
+          ;;
+        esac
+      }
+
+
+      ###############################################################################
+      # the main() function
+      ###############################################################################
+      main() {
+        system_prep
+
+        local osfamily
+        osfamily="$(get_osfamily)" || exit $?
+
+        if [ 'redhat' == "$${osfamily}" ]; then
+        echo 'Performing special RHEL osfamily config...'
+          if [ "${rhel_docker_native}" == "true" ]; then
+            docker_lvm_thinpool_config_native
+          else
+            docker_lvm_thinpool_config
+          fi
+          chown ec2-user: /var/run/docker.sock
+        elif [ 'debian' == "$${osfamily}" ]; then
+          docker_install_tag_version
+          usermod -aG docker ubuntu
+        else
+          echo "OS family \'$${osfamily}\' will default to vendor supplied and pre-installed Docker engine."
+        fi
+      }
+
+      main
+      sleep 120
+
+      cat > /opt/rancher/bin/kickoff.sh << EOF
+      #!/bin/bash
+      while ! docker version >/dev/null 2>&1; do echo 'waiting for docker...'; sleep 2; done
+      while ! ping -c 1 8.8.8.8 >/dev/null 2>&1; do echo 'waiting for net...'; sleep 2; done
+      sleep 5
+      EOF
+      sudo chmod +x /opt/rancher/bin/kickoff.sh
+      sudo sh /opt/rancher/bin/kickoff.sh &
+      # mount /dev/xvdg to etcd snapshot backup
+      sudo mkdir -p /opt/rke/etcd-snapshots
+      sudo mkfs.ext4 /dev/xvdg
+      sudo mount /dev/xvdg /opt/rke/etcd-snapshots
+
+runcmd:
+  - /opt/rancher/bin/bootstrap.sh

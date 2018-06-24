@@ -1,0 +1,10 @@
+*.tfstate*
+*.tfvars
+.terraform*
+.env
+*.pem
+*.plan
+*rke_nodes_public_ips
+*rke_nodes_private_ips
+*rke.yml
+scripts/config
