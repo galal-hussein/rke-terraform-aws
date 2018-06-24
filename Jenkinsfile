@@ -14,4 +14,5 @@ node {
 
   stage ('Terraform Destroy') {
     sh "./scripts/destroy"
+  }
 }
